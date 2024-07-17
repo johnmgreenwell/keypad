@@ -5,6 +5,8 @@
 || @author Mark Stanley, Alexander Brevig
 || @contact mstanley@technologist.com, alexanderbrevig@gmail.com
 ||
+|| Modified by John Greenwell to add support for a custom HAL layer.
+||
 || @description
 || | This library provides a simple interface for using matrix
 || | keypads. It supports multiple keypresses while maintaining
@@ -33,27 +35,11 @@
 #ifndef KEYPAD_H
 #define KEYPAD_H
 
-#include "Key.h"
+#include "hal.h"
+#include "key.h"
 
-// bperrybap - Thanks for a well reasoned argument and the following macro(s).
-// See http://arduino.cc/forum/index.php/topic,142041.msg1069480.html#msg1069480
-#ifndef INPUT_PULLUP
-#warning "Using  pinMode() INPUT_PULLUP AVR emulation"
-#define INPUT_PULLUP 0x2
-#define pinMode(_pin, _mode) _mypinMode(_pin, _mode)
-#define _mypinMode(_pin, _mode)  \
-do {							 \
-	if(_mode == INPUT_PULLUP)	 \
-		pinMode(_pin, INPUT);	 \
-		digitalWrite(_pin, 1);	 \
-	if(_mode != INPUT_PULLUP)	 \
-		pinMode(_pin, _mode);	 \
-}while(0)
-#endif
-
-
-#define OPEN LOW
-#define CLOSED HIGH
+namespace PeripheralIO
+{
 
 typedef char KeypadEvent;
 typedef unsigned int uint;
@@ -66,8 +52,8 @@ typedef struct {
     byte columns;
 } KeypadSize;
 
-#define LIST_MAX 10		// Max number of keys on the active list.
-#define MAPSIZE 10		// MAPSIZE is the number of rows (times 16 columns)
+#define KEYPAD_LIST_MAX 10		// Max number of keys on the active list.
+#define KEYPAD_MAPSIZE 10		// MAPSIZE is the number of rows (times 16 columns)
 #define makeKeymap(x) ((char*)x)
 
 
@@ -77,12 +63,8 @@ public:
 
 	Keypad(char *userKeymap, byte *row, byte *col, byte numRows, byte numCols);
 
-	virtual void pin_mode(byte pinNum, byte mode) { pinMode(pinNum, mode); }
-	virtual void pin_write(byte pinNum, boolean level) { digitalWrite(pinNum, level); }
-	virtual int  pin_read(byte pinNum) { return digitalRead(pinNum); }
-
-	uint bitMap[MAPSIZE];	// 10 row x 16 column array of bits. Except Due which has 32 columns.
-	Key key[LIST_MAX];
+	uint bitMap[KEYPAD_MAPSIZE]; // 10 row x 16 column array of bits. Except Due which has 32 columns.
+	Key key[KEYPAD_LIST_MAX];
 	unsigned long holdTimer;
 
 	char getKey();
@@ -100,10 +82,11 @@ public:
 	byte numKeys();
 
 private:
+    HAL::GPIOPort _rows;
+    HAL::GPIOPort _cols;
+
 	unsigned long startTime;
 	char *keymap;
-    byte *rowPins;
-    byte *columnPins;
 	KeypadSize sizeKpd;
 	uint debounceTime;
 	uint holdTime;
@@ -116,10 +99,13 @@ private:
 	void (*keypadEventListener)(char);
 };
 
+}
+
 #endif
 
 /*
 || @changelog
+|| | 3.2 2024-07-11 - John Greenwell   : Modified driver to utilize intermediary HAL layer.
 || | 3.1 2013-01-15 - Mark Stanley     : Fixed missing RELEASED & IDLE status when using a single key.
 || | 3.0 2012-07-12 - Mark Stanley     : Made library multi-keypress by default. (Backwards compatible)
 || | 3.0 2012-07-12 - Mark Stanley     : Modified pin functions to support Keypad_I2C
@@ -147,3 +133,5 @@ private:
 || | 1.0 2007-XX-XX - Mark Stanley : Initial Release
 || #
 */
+
+// EOF

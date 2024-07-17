@@ -5,6 +5,8 @@
 || @author Mark Stanley, Alexander Brevig
 || @contact mstanley@technologist.com, alexanderbrevig@gmail.com
 ||
+|| Modified by John Greenwell to add support for a custom HAL layer.
+||
 || @description
 || | This library provides a simple interface for using matrix
 || | keypads. It supports multiple keypresses while maintaining
@@ -29,12 +31,20 @@
 || #
 ||
 */
-#include <Keypad.h>
+#include <keypad.h>
+
+namespace PeripheralIO
+{
+
+#define bitSet(value, bit) ((value) |= (1UL << (bit)))
+#define bitClear(value, bit) ((value) &= ~(1UL << (bit)))
+#define bitWrite(value, bit, bitvalue) (bitvalue ? bitSet(value, bit) : bitClear(value, bit))
 
 // <<constructor>> Allows custom keymap, pin configuration, and keypad sizes.
-Keypad::Keypad(char *userKeymap, byte *row, byte *col, byte numRows, byte numCols) {
-	rowPins = row;
-	columnPins = col;
+Keypad::Keypad(char *userKeymap, byte *row, byte *col, byte numRows, byte numCols)
+: _rows(row, numRows)
+, _cols(col, numCols)
+{
 	sizeKpd.rows = numRows;
 	sizeKpd.columns = numCols;
 
@@ -70,10 +80,10 @@ bool Keypad::getKeys() {
 	bool keyActivity = false;
 
 	// Limit how often the keypad is scanned. This makes the loop() run 10 times as fast.
-	if ( (millis()-startTime)>debounceTime ) {
+	if ( (HAL::millis()-startTime)>debounceTime ) {
 		scanKeys();
 		keyActivity = updateList();
-		startTime = millis();
+		startTime = HAL::millis();
 	}
 
 	return keyActivity;
@@ -83,19 +93,19 @@ bool Keypad::getKeys() {
 void Keypad::scanKeys() {
 	// Re-intialize the row pins. Allows sharing these pins with other hardware.
 	for (byte r=0; r<sizeKpd.rows; r++) {
-		pin_mode(rowPins[r],INPUT_PULLUP);
+		_rows.pinMode(r,GPIO_INPUT_PULLUP);
 	}
 
 	// bitMap stores ALL the keys that are being pressed.
 	for (byte c=0; c<sizeKpd.columns; c++) {
-		pin_mode(columnPins[c],OUTPUT);
-		pin_write(columnPins[c], LOW);	// Begin column pulse output.
+		_cols.pinMode(c, GPIO_OUTPUT);
+		_cols.digitalWrite(c, false);	// Begin column pulse output.
 		for (byte r=0; r<sizeKpd.rows; r++) {
-			bitWrite(bitMap[r], c, !pin_read(rowPins[r]));  // keypress is active low so invert to high.
+			bitWrite(bitMap[r], c, !_rows.digitalRead(r));  // keypress is active low so invert to high.
 		}
 		// Set pin to high impedance input. Effectively ends column pulse.
-		pin_write(columnPins[c],HIGH);
-		pin_mode(columnPins[c],INPUT);
+		_cols.digitalWrite(c,true);
+		_cols.pinMode(c,GPIO_INPUT);
 	}
 }
 
@@ -105,7 +115,7 @@ bool Keypad::updateList() {
 	bool anyActivity = false;
 
 	// Delete any IDLE keys
-	for (byte i=0; i<LIST_MAX; i++) {
+	for (byte i=0; i<KEYPAD_LIST_MAX; i++) {
 		if (key[i].kstate==IDLE) {
 			key[i].kchar = NO_KEY;
 			key[i].kcode = -1;
@@ -126,7 +136,7 @@ bool Keypad::updateList() {
 			}
 			// Key is NOT on the list so add it.
 			if ((idx == -1) && button) {
-				for (byte i=0; i<LIST_MAX; i++) {
+				for (byte i=0; i<KEYPAD_LIST_MAX; i++) {
 					if (key[i].kchar==NO_KEY) {		// Find an empty slot or don't add key to list.
 						key[i].kchar = keyChar;
 						key[i].kcode = keyCode;
@@ -140,7 +150,7 @@ bool Keypad::updateList() {
 	}
 
 	// Report if the user changed the state of any key.
-	for (byte i=0; i<LIST_MAX; i++) {
+	for (byte i=0; i<KEYPAD_LIST_MAX; i++) {
 		if (key[i].stateChanged) anyActivity = true;
 	}
 
@@ -176,7 +186,7 @@ void Keypad::nextKeyState(byte idx, boolean button) {
 
 // New in 2.1
 bool Keypad::isPressed(char keyChar) {
-	for (byte i=0; i<LIST_MAX; i++) {
+	for (byte i=0; i<KEYPAD_LIST_MAX; i++) {
 		if ( key[i].kchar == keyChar ) {
 			if ( (key[i].kstate == PRESSED) && key[i].stateChanged )
 				return true;
@@ -188,7 +198,7 @@ bool Keypad::isPressed(char keyChar) {
 // Search by character for a key in the list of active keys.
 // Returns -1 if not found or the index into the list of active keys.
 int Keypad::findInList (char keyChar) {
-	for (byte i=0; i<LIST_MAX; i++) {
+	for (byte i=0; i<KEYPAD_LIST_MAX; i++) {
 		if (key[i].kchar == keyChar) {
 			return i;
 		}
@@ -199,7 +209,7 @@ int Keypad::findInList (char keyChar) {
 // Search by code for a key in the list of active keys.
 // Returns -1 if not found or the index into the list of active keys.
 int Keypad::findInList (int keyCode) {
-	for (byte i=0; i<LIST_MAX; i++) {
+	for (byte i=0; i<KEYPAD_LIST_MAX; i++) {
 		if (key[i].kcode == keyCode) {
 			return i;
 		}
@@ -264,8 +274,11 @@ void Keypad::transitionTo(byte idx, KeyState nextState) {
 	}
 }
 
+}
+
 /*
 || @changelog
+|| | 3.2 2024-07-11 - John Greenwell   : Modified driver to utilize intermediary HAL layer.
 || | 3.1 2013-01-15 - Mark Stanley     : Fixed missing RELEASED & IDLE status when using a single key.
 || | 3.0 2012-07-12 - Mark Stanley     : Made library multi-keypress by default. (Backwards compatible)
 || | 3.0 2012-07-12 - Mark Stanley     : Modified pin functions to support Keypad_I2C
@@ -291,3 +304,5 @@ void Keypad::transitionTo(byte idx, KeyState nextState) {
 || | 1.0 2007-XX-XX - Mark Stanley : Initial Release
 || #
 */
+
+// EOF
